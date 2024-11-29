@@ -20,15 +20,16 @@ import (
 // Config represents the database configuration
 type Config struct {
 	Database struct {
-		Driver            string `yaml:"driver"`
-		Host              string `yaml:"host"`
-		Port              int    `yaml:"port"`
-		Username          string `yaml:"username"`
-		Password          string `yaml:"password"`
-		DBName            string `yaml:"dbname"`
-		SSLMode           string `yaml:"sslmode"`  // PostgreSQL specific
-		Filepath          string `yaml:"filepath"` // SQLite specific
-		LogLevel          string `yaml:"log_level"`
+		Driver    string `yaml:"driver"`
+		Host      string `yaml:"host"`
+		Port      int    `yaml:"port"`
+		Username  string `yaml:"username"`
+		Password  string `yaml:"password"`
+		DBName    string `yaml:"dbname"`
+		SSLMode   string `yaml:"sslmode"`  // PostgreSQL specific
+		Filepath  string `yaml:"filepath"` // SQLite specific
+		LogLevel  string `yaml:"log_level"`
+		DBSchema  string `yaml:"dbschema"` // Database schema
 
 		Pool struct {
 			MaxOpenConns    int    `yaml:"max_open_conns"`
@@ -55,11 +56,11 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 // InitDB initializes the database connection
-func InitDB(configPath string) (*gorm.DB, error) {
+func InitDB(configPath string) (*gorm.DB, *sql.DB, error) {
 	// Load configuration
 	config, err := LoadConfig(configPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create logger
@@ -79,13 +80,14 @@ func InitDB(configPath string) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 	switch config.Database.Driver {
 	case "postgres":
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s search_path=%s",
 			config.Database.Host,
 			config.Database.Port,
 			config.Database.Username,
 			config.Database.Password,
 			config.Database.DBName,
 			config.Database.SSLMode,
+			config.Database.DBSchema,
 		)
 		dialector = postgres.Open(dsn)
 	case "mysql":
@@ -100,19 +102,19 @@ func InitDB(configPath string) (*gorm.DB, error) {
 	case "sqlite":
 		dialector = sqlite.Open(config.Database.Filepath)
 	default:
-		return nil, fmt.Errorf("unsupported database driver: %s", config.Database.Driver)
+		return nil, nil, fmt.Errorf("unsupported database driver: %s", config.Database.Driver)
 	}
 
 	// Initialize GORM
 	db, err := gorm.Open(dialector, &gorm.Config{Logger: gormLogger})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to the database: %v", err)
+		return nil, nil, fmt.Errorf("failed to connect to the database: %v", err)
 	}
 
 	// Configure connection pool settings
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sql.DB from GORM: %v", err)
+		return nil, nil, fmt.Errorf("failed to get sql.DB from GORM: %v", err)
 	}
 
 	// Parse connection pool durations
@@ -124,5 +126,18 @@ func InitDB(configPath string) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(connMaxLifetime)
 	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 
-	return db, nil
+	return db, sqlDB, nil
+}
+
+// PingDB checks the database connection
+func PingDB(sqlDB *sql.DB) error {
+	if err := sqlDB.Ping(); err != nil {
+		return fmt.Errorf("database connection failed: %v", err)
+	}
+	return nil
+}
+
+// GetDBStats retrieves database connection pool stats
+func GetDBStats(sqlDB *sql.DB) sql.DBStats {
+	return sqlDB.Stats()
 }

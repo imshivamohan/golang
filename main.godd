@@ -1,0 +1,152 @@
+Here's a simplified and clean implementation of your requirements in Go. This version focuses on clarity, dynamic handling of CSV data, and database interactions with PostgreSQL.
+
+main.go
+go
+Copy code
+package main
+
+import (
+	"encoding/csv"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+// Configuration holds the command-line arguments
+type Configuration struct {
+	CSVFilePath string
+	DBConfig    string
+	TableName   string
+}
+
+// InitializeDB initializes a PostgreSQL connection
+func InitializeDB(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to the database: %w", err)
+	}
+	return db, nil
+}
+
+// ReadCSV reads and parses a CSV file
+func ReadCSV(filePath string) (headers []string, rows [][]string, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read CSV: %w", err)
+	}
+
+	if len(records) < 2 {
+		return nil, nil, fmt.Errorf("CSV file must contain at least one header row and one data row")
+	}
+
+	headers = records[0]
+	rows = records[1:]
+	return headers, rows, nil
+}
+
+// InsertData inserts rows into the specified database table
+func InsertData(db *gorm.DB, tableName string, headers []string, rows [][]string) error {
+	columns := strings.Join(headers, ", ")
+	placeholders := make([]string, len(headers))
+	for i := range placeholders {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, columns, strings.Join(placeholders, ", "))
+
+	for _, row := range rows {
+		values := convertToInterfaceSlice(row)
+		if err := db.Exec(query, values...).Error; err != nil {
+			return fmt.Errorf("failed to insert row %v: %w", row, err)
+		}
+	}
+	return nil
+}
+
+// convertToInterfaceSlice converts a slice of strings to a slice of interfaces
+func convertToInterfaceSlice(data []string) []interface{} {
+	result := make([]interface{}, len(data))
+	for i, v := range data {
+		result[i] = v
+	}
+	return result
+}
+
+func main() {
+	// Parse flags
+	config := &Configuration{}
+	flag.StringVar(&config.CSVFilePath, "f", "", "Path to the CSV file (required)")
+	flag.StringVar(&config.DBConfig, "config", "host=localhost user=postgres password=postgres dbname=testdb sslmode=disable", "Database connection string")
+	flag.StringVar(&config.TableName, "table", "technical_table", "Target database table name")
+	flag.Parse()
+
+	if config.CSVFilePath == "" {
+		fmt.Println("Error: Please provide the path to the CSV file using the -f flag.")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	// Initialize database connection
+	db, err := InitializeDB(config.DBConfig)
+	if err != nil {
+		fmt.Printf("Error initializing database: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Read CSV file
+	headers, rows, err := ReadCSV(config.CSVFilePath)
+	if err != nil {
+		fmt.Printf("Error reading CSV: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Insert data into the database
+	err = InsertData(db, config.TableName, headers, rows)
+	if err != nil {
+		fmt.Printf("Error inserting data: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Data inserted successfully!")
+}
+Sample data.csv
+csv
+Copy code
+tid,technical_id,prefix_name,acls_read,acls_write
+1,John333,name1,READ_GROUP_A,WRITE_GROUP_A
+2,Jane444rr,name2,READ_GROUP_B,WRITE_GROUP_B
+3,Mik4444e,name3,READ_GROUP_C,WRITE_GROUP_C
+4,Alic567e,name4,READ_GROUP_D,WRITE_GROUP_D
+PostgreSQL Table
+sql
+Copy code
+CREATE TABLE technical_table (
+    tid SERIAL PRIMARY KEY,
+    technical_id TEXT NOT NULL,
+    prefix_name TEXT NOT NULL,
+    acls_read TEXT NOT NULL,
+    acls_write TEXT NOT NULL
+);
+Run the Code
+Compile and Execute:
+bash
+Copy code
+go run main.go -f data.csv -config "host=localhost user=postgres password=postgres dbname=testdb sslmode=disable" -table technical_table
+Verify Data:
+sql
+Copy code
+SELECT * FROM technical_table;
+Key Features
+Dynamic CSV Parsing: Reads any CSV structure as long as the headers match the table columns.
+Safe SQL Execution: Uses GORM to safely execute parameterized queries.
+Flexible Configuration: Allows dynamic configuration through flags for CSV, database, and table.

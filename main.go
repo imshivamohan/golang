@@ -140,3 +140,44 @@ Scalability:
 
 Easily extendable for additional preprocessing or validation of the CSV data.
 This setup makes the program reusable for any PostgreSQL table, simplifying CSV data ingestion
+
+
+
+
+####################################################################################
+
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+
+	"your_project/db" // Replace with your actual db package path
+)
+
+func main() {
+	// Parse command-line flags
+	configPath := flag.String("config", "config.yaml", "Path to the database config file")
+	flag.Parse()
+
+	// Initialize database connection
+	gormDB, sqlDB, err := db.InitDB(*configPath)
+	if err != nil {
+		fmt.Printf("Error initializing database: %v\n", err)
+		os.Exit(1)
+	}
+	defer sqlDB.Close()
+
+	// Ping the database to check connectivity
+	if err := db.PingDB(sqlDB); err != nil {
+		fmt.Printf("Database ping failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Database connection successful.")
+
+	// Retrieve and display connection pool stats
+	stats := db.GetDBStats(sqlDB)
+	fmt.Printf("Database connection stats: %+v\n", stats)
+}
+

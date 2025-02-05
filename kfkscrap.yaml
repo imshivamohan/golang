@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ama-metrics-prometheus-config
+  namespace: kube-system
+data:
+  prometheus-config: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # 🔹 Kafka Brokers - Dynamic Discovery
+      - job_name: "kafka-brokers"
+        metrics_path: /metrics
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["kafka-dev"]  # Replace with your actual Kafka namespace
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: "kafka-broker"
+            action: keep
+          - source_labels: [__address__]
+            regex: "(.*):\d+"
+            replacement: "$1:7778"  # Ensure it targets the JMX exporter port
+            target_label: __address__
+
+        metric_relabel_configs:
+          # 🔸 Blacklist Kafka Metrics
+          - source_labels: [__name__]
+            regex: "kafka.consumer:type=.*, id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.consumer:type=.*, client-id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.consumer:type=.*,client-id=.*, node-id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka-producer:type=.*, id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka-producer:type=.*,client-id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka-producer:type=.*,client-id=.*, node-id=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.*:type=kafka-metrics-count,.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.admin.client:.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.server:type=.*,cipher=.*,protocol=.*,listener=.*,networkProcessor=.*"
+            action: drop
+          - source_labels: [__name__]
+            regex: "kafka.server:type=.*"
+            action: drop
+
+          # 🔹 Relabel Kafka Metric Names
+          - source_labels: [__name__, type, name, topic, partition]
+            regex: "kafka.(\\w+)<type=(.+), name=(.+), topic=(.+), partition=(.+)><>Value"
+            target_label: name
+            replacement: "kafka_$1_$2_$3"
+
+          - source_labels: [type, name, clientId, topic, partition]
+            regex: "kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.+)><>Value"
+            target_label: name
+            replacement: "kafka_server_$1_$2"
+
+          - source_labels: [type, name, clientId, brokerHost, brokerPort]
+            regex: "kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value"
+            target_label: name
+            replacement: "kafka_server_$1_$2"
+
+          - source_labels: [type, name, label1, value1, label2, value2]
+            regex: "kafka.(\\w+)<type=(.+), name=(.+), (.+)=(.+), (.+)=(.+)><>(Count|Value)"
+            target_label: name
+            replacement: "kafka_$1_$2_$3"
+
+          - source_labels: [type, name, label, value, quantile]
+            regex: "kafka.(\\w+)<type=(.+), name=(.+), (.+)=(.+)><>(\\d+)thPercentile"
+            target_label: name
+            replacement: "kafka_$1_$2_$3"
+
+          - source_labels: [type, name, label1, value1, label2, value2, label3, value3]
+            regex: "kafka.(\\w+)<type=(.+), (.+)=(.+), (.+)=(.+), (.+)=(.+)><>Value"
+            target_label: name
+            replacement: "kafka_$1_$2"
+
+          - source_labels: [type, label1, value1, label2, value2]
+            regex: "kafka.(\\w+)<type=(.+), (.+)=(.+), (.+)=(.+)><>(Count|Value)"
+            target_label: name
+            replacement: "kafka_$1_$2"
+
+          - source_labels: [type, label1, value1, label2, value2]
+            regex: "kafka.(\\w+)<type=(.+), (.+)=(.+), (.+)=(.+)><>(Count|Value)"
+            target_label: name
+            replacement: "kafka_$1_$2"
+
+          - source_labels: [type, name]
+            regex: "kafka.(\\w+)<type=(.+), name=(.+)><>(Count|Value)"
+            target_label: name
+            replacement: "kafka_$1_$2_$3"
+
+          - source_labels: [type, label, value]
+            regex: "kafka.(\\w+)<type=(.+), (.+)=(.+)><>Value"
+            target_label: name
+            replacement: "kafka_$1_$2"
+
+          - source_labels: [type, listener, networkProcessor]
+            regex: "kafka.server<type=socket-server-metrics, listener=(.+), networkProcessor=(.+)><>(.+)"
+            target_label: name
+            replacement: "kafka_server_socketservermetrics_$3"
+
+          - source_labels: [type, clientSoftwareName, clientSoftwareVersion, listener, networkProcessor]
+            regex: "kafka.server<type=socket-server-metrics, clientSoftwareName=(.+), clientSoftwareVersion=(.+), listener=(.+), networkProcessor=(.+)><>connections"
+            target_label: name
+            replacement: "kafka_server_socketservermetrics_connections"
+
+          - source_labels: [type, name]
+            regex: "kafka.coordinator.(\\w+)<type=(.+), name=(.+)><>(Count|Value)"
+            target_label: name
+            replacement: "kafka_coordinator_$1_$2_$3"
